@@ -15,5 +15,10 @@ dependencies = [
     "streamlit==1.66.0",
 ]
 
+[project.optional-dependencies]
+training = [
+    "torch>=2.15.0",
+]
+
 [tool.uv]
 package = false

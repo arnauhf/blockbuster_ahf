@@ -14,6 +14,7 @@ EXPECTED_ARTIFACT_KEYS = {
     "genres",
     "feature_importances",
     "confusion",
+    "experiment_metrics",
     "metadata",
 }
 
@@ -29,6 +30,11 @@ def load_artifact() -> dict:
     missing_keys = EXPECTED_ARTIFACT_KEYS.difference(artifact)
     if missing_keys:
         raise ValueError(f"El artefacto no contiene estas claves: {sorted(missing_keys)}")
+    if artifact["metadata"].get("model_type") != "MLPClassifier":
+        raise ValueError(
+            "El artefacto no contiene la red neuronal esperada. "
+            "Ejecuta `uv run python train.py` para regenerarlo."
+        )
     if artifact["metadata"].get("sklearn_version") != sklearn.__version__:
         raise ValueError(
             "La versión de scikit-learn no coincide con la usada al entrenar. "
@@ -40,7 +46,9 @@ def load_artifact() -> dict:
 st.set_page_config(page_title="Detector de Blockbusters", page_icon="🎬", layout="wide")
 st.title("¿Será un blockbuster?")
 st.caption(
-    "Clasificador educativo con Random Forest. El conjunto de datos es sintético; "
+    "Clasificador educativo con una MLP entrenada también con augmentation "
+    "ligera de duración y año. "
+    "El conjunto de datos es sintético; "
     "el resultado es una estimación para practicar, no una predicción de taquilla real."
 )
 
@@ -55,15 +63,47 @@ metrics = artifact["metrics"]
 genres = artifact["genres"]
 feature_importances = artifact["feature_importances"]
 confusion = artifact["confusion"]
+experiment_metrics = artifact["experiment_metrics"]
 
-st.subheader("Evaluación en datos reservados")
-metric_columns = st.columns(6)
+st.subheader("Evaluación de la red con augmentation")
+metric_columns = st.columns(8)
 metric_columns[0].metric("Accuracy", f"{metrics['accuracy']:.1%}")
-metric_columns[1].metric("Balanced accuracy", f"{metrics['balanced_accuracy']:.1%}")
-metric_columns[2].metric("Precisión blockbuster", f"{metrics['precision']:.1%}")
-metric_columns[3].metric("Recall blockbuster", f"{metrics['recall']:.1%}")
-metric_columns[4].metric("F1 blockbuster", f"{metrics['f1']:.1%}")
-metric_columns[5].metric("ROC AUC", f"{metrics['roc_auc']:.3f}")
+metric_columns[1].metric("Macro F1", f"{metrics['macro_f1']:.1%}")
+metric_columns[2].metric("Macro F1 + ruido", f"{metrics['macro_f1_perturbed']:.1%}")
+metric_columns[3].metric("Balanced accuracy", f"{metrics['balanced_accuracy']:.1%}")
+metric_columns[4].metric("Precisión blockbuster", f"{metrics['precision']:.1%}")
+metric_columns[5].metric("Recall blockbuster", f"{metrics['recall']:.1%}")
+metric_columns[6].metric("F1 blockbuster", f"{metrics['f1']:.1%}")
+metric_columns[7].metric("ROC AUC", f"{metrics['roc_auc']:.3f}")
+
+st.subheader("Comparación de redes")
+st.caption(
+    "Misma partición reservada para todas las variantes. Macro F1 con ruido "
+    "se calcula sobre cinco copias perturbadas de cada película. "
+    "Este dataset es tabular y no contiene sinopsis: Global Max Pooling semántico "
+    "no aplica aquí."
+)
+comparison_display = experiment_metrics.rename(
+    columns={
+        "modelo": "Red",
+        "accuracy": "Accuracy",
+        "macro_f1": "Macro F1",
+        "macro_f1_perturbed": "Macro F1 con ruido",
+        "balanced_accuracy": "Balanced accuracy",
+    }
+)
+st.dataframe(
+    comparison_display.style.format(
+        {
+            "Accuracy": "{:.1%}",
+            "Macro F1": "{:.1%}",
+            "Macro F1 con ruido": "{:.1%}",
+            "Balanced accuracy": "{:.1%}",
+        }
+    ),
+    hide_index=True,
+    width="stretch",
+)
 
 with st.expander("Matriz de confusión y variables importantes"):
     left, right = st.columns(2)
@@ -72,9 +112,15 @@ with st.expander("Matriz de confusión y variables importantes"):
         st.dataframe(confusion, width="stretch")
     with right:
         chart_data = feature_importances.copy()
-        chart_data["feature"] = chart_data["feature"].str.replace(
-            "genre__genre_", "Género: ", regex=False
-        ).str.replace("numeric__", "", regex=False)
+        chart_data["feature"] = chart_data["feature"].replace(
+            {
+                "genre": "Género",
+                "budget_usd": "Presupuesto",
+                "runtime_min": "Duración",
+                "year": "Año",
+            }
+        )
+        st.caption("Importancia estimada por permutación (macro F1).")
         st.bar_chart(chart_data, x="feature", y="importance", horizontal=True)
 
 st.divider()

@@ -3,3 +3,4 @@ joblib==1.6.0
 pandas==3.0.6
 scikit-learn==1.9.1
 streamlit==1.66.0
+torch==2.15.0

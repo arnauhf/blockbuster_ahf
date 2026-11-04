@@ -7,7 +7,7 @@ import joblib
 import pandas as pd
 import sklearn
 
-from model import DATASET_PATH, FEATURE_COLUMNS, TARGET_COLUMN, train_model
+from model import FEATURE_COLUMNS, TARGET_COLUMN, train_model
 
 KAGGLE_DATASET_SLUG = "vedauv/what-makes-a-movie-a-blockbuster-5000-films"
 MODEL_PATH = Path(__file__).resolve().parent / "modelo.joblib"
@@ -15,7 +15,7 @@ MODEL_PATH = Path(__file__).resolve().parent / "modelo.joblib"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Entrena el Random Forest para clasificar películas blockbuster."
+        description="Entrena una red neuronal para clasificar películas blockbuster."
     )
     parser.add_argument(
         "--dataset-root",
@@ -63,23 +63,15 @@ def resolve_dataset_path(dataset_root: Path | None) -> Path:
 def main() -> None:
     args = parse_args()
     dataset_path = resolve_dataset_path(args.dataset_root)
-    model, metrics, genres, _, confusion = train_model(dataset_path)
+    (
+        model,
+        metrics,
+        genres,
+        feature_importances,
+        confusion,
+        experiment_metrics,
+    ) = train_model(dataset_path)
     training_data = pd.read_csv(dataset_path)
-    model.fit(
-        training_data[FEATURE_COLUMNS],
-        training_data[TARGET_COLUMN].astype(int),
-    )
-
-    classifier = model.named_steps["classifier"]
-    feature_names = model.named_steps["preprocessor"].get_feature_names_out()
-    feature_importances = (
-        pd.DataFrame(
-            {"feature": feature_names, "importance": classifier.feature_importances_}
-        )
-        .sort_values("importance", ascending=False)
-        .head(10)
-        .reset_index(drop=True)
-    )
 
     artifact = {
         "model": model,
@@ -87,11 +79,21 @@ def main() -> None:
         "genres": genres,
         "feature_importances": feature_importances,
         "confusion": confusion,
+        "experiment_metrics": experiment_metrics,
         "metadata": {
             "features": FEATURE_COLUMNS,
             "target": TARGET_COLUMN,
             "training_rows": len(training_data),
             "dataset_source": KAGGLE_DATASET_SLUG if args.dataset_root is None else str(dataset_path),
+            "model_type": "MLPClassifier",
+            "hidden_layer_sizes": (64, 32),
+            "class_balancing": "none in baseline; Focal Loss adaptation uses balanced alpha",
+            "augmentation": {
+                "training_copies": 2,
+                "runtime_noise_std_minutes": 2.0,
+                "year_noise_std_years": 1.0,
+                "preserved_features": ["genre", "budget_usd"],
+            },
             "sklearn_version": sklearn.__version__,
         },
     }
@@ -101,6 +103,8 @@ def main() -> None:
     print("Métricas del conjunto de prueba:")
     for metric_name, metric_value in metrics.items():
         print(f"{metric_name}: {metric_value:.3f}")
+    print("\nComparación sobre la misma partición de prueba:")
+    print(experiment_metrics.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
     print(f"Artefacto guardado en: {args.model_path.resolve()}")
 
 
